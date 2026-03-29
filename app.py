@@ -62,8 +62,8 @@ def fetch_text(url):
 
 def chunk_text(text):
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=100
+        chunk_size=1500,
+        chunk_overlap=200
     )
     return splitter.split_text(text)
 
@@ -147,7 +147,7 @@ def process(urls, question):
 
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
-            retriever=vectorstore.as_retriever(search_kwargs={"k": 4}),
+            retriever=vectorstore.as_retriever(search_kwargs={"k": 10}),
             return_source_documents=True
         )
 
