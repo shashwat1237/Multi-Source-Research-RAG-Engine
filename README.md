@@ -11,7 +11,7 @@ A Gradio-based web app that scrapes content from multiple URLs, deduplicates it,
 3. All extracted text is chunked and embedded using a local HuggingFace sentence transformer.
 4. Near-duplicate chunks are removed via cosine similarity before indexing.
 5. The cleaned, deduplicated chunks are stored in a FAISS vector index.
-6. Your question is answered by retrieving the top 4 most relevant chunks and passing them to LLaMA 3.3 70B.
+6. Your question is answered by retrieving the top 10 most relevant chunks and passing them to LLaMA 3.3 70B.
 7. The answer and up to 2 source excerpts are displayed in the UI.
 
 ---
@@ -125,33 +125,35 @@ Gradio will start a local server at `http://localhost:7860` and print a public s
 
 ### Two-Layer Web Scraping
 
-The `fetch_text()` function first tries Trafilatura, which is purpose-built for extracting clean article text and handles most news/blog sites well. If Trafilatura returns less than 200 characters, it falls back to a raw Requests + BeautifulSoup scrape that strips `<script>`, `<style>`, and `<noscript>` tags before extracting visible text.
-
-### Chunk Deduplication
-
-After splitting text into 500-character chunks (100-character overlap), the `deduplicate()` function embeds all chunks and computes pairwise cosine similarity. Any chunk with a similarity score above 0.85 against an already-kept chunk is dropped. This prevents the LLM from receiving redundant context, which wastes the context window and can skew answers.
+`fetch_text()` first tries Trafilatura, which is purpose-built for extracting clean article text and handles most news and blog sites well. If Trafilatura returns less than 200 characters, it falls back to a raw Requests + BeautifulSoup scrape that strips `<script>`, `<style>`, and `<noscript>` tags before extracting visible text.
 
 ### Text Splitting
 
-`RecursiveCharacterTextSplitter` splits on paragraph breaks, then sentences, then words — preserving as much semantic coherence as possible within each chunk.
+`RecursiveCharacterTextSplitter` splits on paragraph breaks, then sentences, then words — preserving as much semantic coherence as possible within each chunk. Chunks are set to 1500 characters with a 200-character overlap, giving each chunk more context compared to smaller chunk sizes. This is especially useful for long-form articles where ideas span multiple paragraphs.
+
+### Chunk Deduplication
+
+After splitting, `deduplicate()` embeds all chunks and computes pairwise cosine similarity. Any chunk with a similarity score above 0.85 against an already-kept chunk is dropped. This prevents the LLM from receiving redundant context, which wastes the context window and can skew answers toward repeated content.
 
 ### Retrieval
 
-At query time, the top 4 most semantically similar chunks are retrieved from FAISS and injected into the LLM prompt as context.
+At query time, the top 10 most semantically similar chunks (`k=10`) are retrieved from FAISS and injected into the LLM prompt as context. Using 10 chunks (vs a smaller value) gives the model broader coverage across multiple source documents, which is important when aggregating content from several URLs.
 
 ### LLM Settings
 
-`temperature=0.2` keeps answers factual and consistent. The model is re-instantiated on every `process()` call (stateless by design — no session memory).
+`temperature=0.2` keeps answers factual and consistent. The model is re-instantiated on every `process()` call — stateless by design with no session memory between runs.
 
 ---
 
-## Validation & Error Handling
+## Validation and Error Handling
 
 The `process()` function validates at each stage and raises descriptive errors if:
+
 - No URLs are provided
 - All URLs fail to fetch
-- Extracted content is under 200 characters
-- Fewer than 2 chunks remain after splitting or deduplication
+- Extracted content is under 200 characters total
+- Fewer than 2 chunks remain after splitting
+- Fewer than 2 chunks remain after deduplication
 
 Errors are surfaced directly in the "Answer" output box in the UI.
 
@@ -160,10 +162,10 @@ Errors are surfaced directly in the "Answer" output box in the UI.
 ## Limitations
 
 - The FAISS index is rebuilt from scratch on every run — there is no caching between queries.
-- JavaScript-heavy single-page apps (React, Angular, etc.) may return little or no content since both scrapers work on the raw HTML response.
-- No conversation memory — each click of "Run" is a fresh, independent query.
+- JavaScript-heavy single-page apps (React, Angular, etc.) may return little or no content since both scrapers work on the raw HTML response without executing JavaScript.
+- No conversation memory — each click of "Run" is a fresh, independent query with no history.
 - The hardcoded API key must be replaced with an environment variable before any deployment.
-- `share=True` in `app.launch()` creates a public Gradio tunnel. Remove it or set `share=False` for private/local use.
+- `share=True` in `app.launch()` creates a public Gradio tunnel. Set `share=False` for private or local-only use.
 
 ---
 
